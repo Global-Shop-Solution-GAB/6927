@@ -1,0 +1,141 @@
+﻿Program.Sub.Preflight.Start
+v.Global.sError.Declare(String)
+v.Global.sARCID.Declare(String, "ARC 6927")
+
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Author: Arturo Almaguer
+'Date: 9/30/2022
+'Customer: Advanced Heat Treat, quote number 13764
+'This program automatically launches 'Sales Order Labels' screen if custom checkbox is turned on when saving a new/existing order.
+'This script is launched off hooks shown below.
+
+Function.Intrinsic.UI.UsePixels ' Allows you to use Pixels instead of Twips throughout
+
+F.Intrinsic.Control.Try
+
+	V.Local.sSQL.Declare(String)
+	V.Local.sSO.Declare(String)
+	V.Local.sJobStream.Declare(String)
+	v.Local.iUserID.Declare(Long)
+
+	F.Intrinsic.Control.SelectCase(V.Caller.Hook)
+		
+		F.Intrinsic.Control.Case(11560)
+		'SO Header populate hook
+			
+			'Calling sub if SO is a new one
+			F.Intrinsic.Control.If(V.Caller.Switches, =, "N")
+				F.Intrinsic.Control.CallSub("UnhideControls")
+			F.Intrinsic.Control.EndIf
+	
+		F.Intrinsic.Control.Case(11565)
+		'SO Header order selected hook
+		
+			'Calling sub if SO is an existing one
+			F.Intrinsic.Control.If(V.Caller.Switches, =, "O")
+				F.Intrinsic.Control.CallSub("UnhideControls")
+			F.Intrinsic.Control.EndIf	
+		
+		F.Intrinsic.Control.Case(11869)
+		'SO Header pre save hook
+			
+			F.Intrinsic.Control.If(V.Passed.GAB-CHK-1, =, "Y")
+				
+				F.Intrinsic.String.LPad(V.Passed.000003,"0",7,V.Local.sSO)
+				
+				'Validating if order has at least one line.
+				F.ODBC.Connection!Con.OpenCompanyConnection
+				F.Intrinsic.String.Build("select RECORD_NO from V_ORDER_LINES where ORDER_NO = '{0}' and RECORD_TYPE = 'L';", V.Local.sSO, V.Local.sSQL)
+				F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSQL, V.Local.sSQL)
+				
+				F.Intrinsic.Control.If(V.Ambient.ExecuteAndReturnEOF, =, False)
+					
+					'Opening 'Sales Order Labels' screen since there is at least one line.
+					F.Global.Registry.AddValue(V.Caller.User, V.Caller.CompanyCode,"GCG_6927",6927,1001,False, V.Local.sSO, False, 0,-999.0,1/1/1980,12:00:00 AM, "")
+					F.Global.General.CallWrapperSync(50,"ORD172")
+				
+				F.Intrinsic.Control.Else
+					
+					'Stopping saving process since Order doesn't have any lines.
+					V.Passed.777777.Set(1)
+					F.Intrinsic.UI.Msgbox("Order doesn't have any lines, Sales Order Labels screen won't be displayed. Stopping saving process.", v.Global.sARCID)
+					
+				F.Intrinsic.Control.EndIf
+			
+			F.Intrinsic.Control.EndIf
+	
+		F.Intrinsic.Control.Case(30230)
+		'Sales Order Labels populate hook
+			
+			f.Global.Security.GetUserId(v.Caller.User,v.Caller.CompanyCode,v.Local.iUserID)
+			F.ODBC.Connection!Con.OpenCommonConnection
+			f.Intrinsic.String.Build("Select Top 1 Job_Stream_ID from Menu_Process where Company_Code = '{0}' and User_ID = '{1}' and PID = '{2}'",v.Caller.CompanyCode,v.Local.iUserID,v.Caller.PID,v.Local.sSQL)		
+			F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSQL, V.Local.sJobStream)
+			F.ODBC.Connection!Con.Close
+			
+			f.Intrinsic.Control.If(v.Local.sJobStream,<>,"241")
+				F.Global.Registry.ReadValue(V.Caller.User,V.Caller.CompanyCode,"GCG_6927",6927,1001,5,"",V.Local.sSO)
+				V.Passed.000008.Set(V.Local.sSO)
+				V.Passed.000002.Set("001")
+			F.Intrinsic.Control.EndIf
+			
+	F.Intrinsic.Control.EndSelect
+
+F.Intrinsic.Control.Catch
+	
+	F.Intrinsic.Control.CallSub(CatchError)
+	
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.CatchError.Start
+'To display the error
+F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}", V.Ambient.ScriptPath, V.Ambient.Newline, V.Ambient.SubroutineCalledFrom, V.Ambient.ErrorNumber, V.Ambient.ErrorDescription, V.Ambient.GABVersion, V.Global.sError) 
+F.Intrinsic.UI.Msgbox(V.Global.sError, v.Global.sARCID)
+F.Intrinsic.Control.CallSub("Unload")
+Program.Sub.CatchError.End
+
+Program.Sub.Unload.Start
+'Closes the connection if it is open
+f.Intrinsic.Control.If(v.ODBC.con.exists,=,"1") 	
+    f.ODBC.Connection!Con.Close
+f.Intrinsic.Control.EndIf
+
+'Ending program
+F.Intrinsic.Control.End
+Program.Sub.Unload.End
+
+Program.Sub.UnhideControls.Start
+'This subroutine unhides and formats a checkbox and a label in the SO Header screen
+
+F.Intrinsic.Control.Try
+	
+	'Unhiding controls
+	F.Intrinsic.UI.ChangeCallerProperty(V.Passed.GAB-CHK-1, "HIDE", 0) 'True is 1, False 0
+	F.Intrinsic.UI.ChangeCallerProperty(V.Passed.GAB-CHK-1, "LOCK", 0)
+	F.Intrinsic.UI.ChangeCallerProperty(V.Passed.GAB-LBL-1, "HIDE", 0)
+	
+	'Setting up checkbox's message
+	V.Passed.GAB-LBL-1.Set("Print Sales Label") 
+
+	'Setting up the position for each control
+	'PT is vertical position, PL is horizontal position
+	F.Intrinsic.Variable.SetProperty("GAB-LBL-1", "PT", 550)
+	F.Intrinsic.Variable.SetProperty("GAB-LBL-1", "PL", 600)
+	
+	F.Intrinsic.Variable.SetProperty("GAB-CHK-1", "PT", 550) 
+	F.Intrinsic.Variable.SetProperty("GAB-CHK-1", "PL", 575)
+
+F.Intrinsic.Control.Catch
+	
+	F.Intrinsic.Control.CallSub(CatchError)
+	
+F.Intrinsic.Control.EndTry
+Program.Sub.UnhideControls.End
+
+Program.Sub.Comments.Start
+${$5$}$20.1.8223.27623$}$1
+${$6$}$apadilla$}$20221003134047128$}$Lag9STqBJOmNXSbd5+msRcBWPGz0aFqSmhrQDKqKcnUC3o2ASMSdpnSPG7bA5q7ZX5g/8XNQ7Z3skSSA8y2PgQ==
+Program.Sub.Comments.End
